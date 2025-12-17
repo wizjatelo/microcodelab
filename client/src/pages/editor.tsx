@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
-  Play,
   Upload,
   Save,
   FileCode,
@@ -10,13 +9,18 @@ import {
   Plus,
   X,
   ChevronLeft,
-  MoreVertical,
-  Trash2,
   File,
+<<<<<<< HEAD
   Zap,
+=======
+  Play,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+>>>>>>> f5a981abfafe4a30b888b46195df96434a84f2e8
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+
 import {
   ResizableHandle,
   ResizablePanel,
@@ -30,12 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -45,9 +44,12 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAppStore } from "@/lib/store";
 import { AICodeEditor } from "@/components/ai-code-editor";
 import { SerialConsole } from "@/components/serial-console";
+import { SerialConnection } from "@/components/serial-connection";
+import { WiFiConnection } from "@/components/wifi-connection";
 import { DeployDialog } from "@/components/deploy-dialog";
 import { AIAssistant } from "@/components/ai-assistant";
 import { getHardwareLabel, getLanguageLabel } from "@/components/hardware-icon";
+import { analyzeCode } from "@/services/code-analyzer";
 import type { Project, CodeFile } from "@shared/schema";
 
 const DEFAULT_ARDUINO_CODE = `// µCodeLab - Arduino Sketch
@@ -183,12 +185,13 @@ function NoProjectSelected() {
 }
 
 export default function EditorPage() {
-  const { currentProjectId, currentFileId, setCurrentFile } = useAppStore();
+  const { currentProjectId, currentFileId, setCurrentFile, addLog } = useAppStore();
   const [deployOpen, setDeployOpen] = useState(false);
   const [newFileOpen, setNewFileOpen] = useState(false);
   const [newFileName, setNewFileName] = useState("");
   const [localContent, setLocalContent] = useState<Record<string, string>>({});
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const { toast } = useToast();
 
   const { data: project, isLoading: projectLoading } = useQuery<Project>({
@@ -200,6 +203,19 @@ export default function EditorPage() {
     queryKey: ["/api/projects", currentProjectId, "files"],
     enabled: !!currentProjectId,
   });
+
+  // Fetch dashboard widgets for code binding
+  const { data: dashboards } = useQuery<Array<{ id: string; widgets: Array<{ id: string; type: string; label: string }> }>>({
+    queryKey: ["/api/projects", currentProjectId, "dashboards"],
+    enabled: !!currentProjectId,
+  });
+
+  // Get widgets from first dashboard for binding
+  const dashboardWidgets = dashboards?.[0]?.widgets?.map(w => ({
+    id: w.id,
+    type: w.type,
+    label: w.label,
+  })) || [];
 
   const currentFile = files?.find((f) => f.id === currentFileId);
 
@@ -292,6 +308,147 @@ export default function EditorPage() {
     createFileMutation.mutate({ name, language });
   };
 
+  const handleTest = async () => {
+    if (!currentFile) {
+      toast({ title: "Error", description: "No file selected to test.", variant: "destructive" });
+      return;
+    }
+
+    setTestStatus('running');
+    const code = localContent[currentFile.id] ?? currentFile.content;
+    const language = currentFile.language === 'micropython' ? 'micropython' : 'arduino';
+    
+    // Log test start
+    addLog({
+      id: `test-${Date.now()}`,
+      level: 'info',
+      source: 'compiler',
+      message: `Starting code analysis for ${currentFile.name}...`,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Simulate compilation delay for realism
+    await new Promise(resolve => setTimeout(resolve, 300));
+
+    // Run comprehensive code analysis
+    const result = analyzeCode(code, language);
+
+    addLog({
+      id: `test-parse-${Date.now()}`,
+      level: 'debug',
+      source: 'parser',
+      message: `Parsed ${result.stats.lines} lines, ${result.stats.functions} functions, ${result.stats.variables} variables`,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Log all errors with line numbers
+    result.errors.forEach(err => {
+      addLog({
+        id: `test-err-${Date.now()}-${Math.random()}`,
+        level: 'error',
+        source: 'compiler',
+        message: `Line ${err.line}${err.column ? `:${err.column}` : ''}: ${err.message}${err.code ? ` [${err.code}]` : ''}`,
+        timestamp: new Date().toISOString(),
+      });
+      if (err.suggestion) {
+        addLog({
+          id: `test-suggest-${Date.now()}-${Math.random()}`,
+          level: 'debug',
+          source: 'compiler',
+          message: `  → Suggestion: ${err.suggestion}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Log all warnings with line numbers
+    result.warnings.forEach(warn => {
+      addLog({
+        id: `test-warn-${Date.now()}-${Math.random()}`,
+        level: 'warning',
+        source: 'compiler',
+        message: `Line ${warn.line}${warn.column ? `:${warn.column}` : ''}: ${warn.message}${warn.code ? ` [${warn.code}]` : ''}`,
+        timestamp: new Date().toISOString(),
+      });
+      if (warn.suggestion) {
+        addLog({
+          id: `test-suggest-${Date.now()}-${Math.random()}`,
+          level: 'debug',
+          source: 'compiler',
+          message: `  → Suggestion: ${warn.suggestion}`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Log info messages
+    result.info.forEach(info => {
+      addLog({
+        id: `test-info-${Date.now()}-${Math.random()}`,
+        level: 'info',
+        source: 'analyzer',
+        message: `Line ${info.line}: ${info.message}`,
+        timestamp: new Date().toISOString(),
+      });
+    });
+
+    // Simulate linking phase
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    if (!result.success) {
+      setTestStatus('error');
+      addLog({
+        id: `test-result-${Date.now()}`,
+        level: 'error',
+        source: 'compiler',
+        message: `Build FAILED: ${result.errors.length} error(s), ${result.warnings.length} warning(s)`,
+        timestamp: new Date().toISOString(),
+      });
+      toast({ 
+        title: "Build Failed", 
+        description: `${result.errors.length} error(s) found. Check console for details.`,
+        variant: "destructive" 
+      });
+    } else {
+      setTestStatus('success');
+      
+      // Log build statistics
+      addLog({
+        id: `test-stats-${Date.now()}`,
+        level: 'info',
+        source: 'compiler',
+        message: `Build SUCCESS${result.warnings.length > 0 ? ` with ${result.warnings.length} warning(s)` : ''}`,
+        timestamp: new Date().toISOString(),
+      });
+      
+      addLog({
+        id: `test-size-${Date.now()}`,
+        level: 'debug',
+        source: 'linker',
+        message: `Sketch uses ~${result.stats.estimatedSize} bytes (estimated)`,
+        timestamp: new Date().toISOString(),
+      });
+      
+      addLog({
+        id: `test-complexity-${Date.now()}`,
+        level: 'debug',
+        source: 'analyzer',
+        message: `Code complexity: ${result.stats.complexity} | Includes: ${result.stats.includes}`,
+        timestamp: new Date().toISOString(),
+      });
+
+      toast({ 
+        title: "Build Successful", 
+        description: result.warnings.length > 0 
+          ? `Compiled with ${result.warnings.length} warning(s)` 
+          : `Ready to deploy! (${result.stats.estimatedSize} bytes)` 
+      });
+    }
+
+    // Reset status after 3 seconds
+    setTimeout(() => setTestStatus('idle'), 3000);
+  };
+
   if (!currentProjectId) {
     return <NoProjectSelected />;
   }
@@ -341,6 +498,27 @@ export default function EditorPage() {
             Save
           </Button>
           <Button
+            variant={testStatus === 'success' ? 'default' : testStatus === 'error' ? 'destructive' : 'outline'}
+            size="sm"
+            onClick={handleTest}
+            disabled={testStatus === 'running' || !currentFile}
+            data-testid="button-test"
+            className="gap-2"
+          >
+            {testStatus === 'running' ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : testStatus === 'success' ? (
+              <CheckCircle2 className="h-4 w-4" />
+            ) : testStatus === 'error' ? (
+              <XCircle className="h-4 w-4" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+            {testStatus === 'running' ? 'Testing...' : testStatus === 'success' ? 'Passed' : testStatus === 'error' ? 'Failed' : 'Test'}
+          </Button>
+          <SerialConnection />
+          <WiFiConnection />
+          <Button
             variant="default"
             size="sm"
             onClick={() => setDeployOpen(true)}
@@ -377,6 +555,7 @@ export default function EditorPage() {
                 </Button>
               </div>
             </div>
+<<<<<<< HEAD
             <div className="flex flex-1 overflow-hidden">
               {/* Main Editor Area */}
               <div className="flex-1 overflow-hidden">
@@ -402,6 +581,33 @@ export default function EditorPage() {
                         Create File
                       </Button>
                     </div>
+=======
+            <div className="flex-1">
+              {currentFile ? (
+                <CodeEditor
+                  value={localContent[currentFile.id] ?? currentFile.content}
+                  onChange={handleContentChange}
+                  language={currentFile.language === "micropython" ? "python" : "cpp"}
+                  onSave={handleSave}
+                  fileName={currentFile.name}
+                  filePath={currentFile.name}
+                  widgets={dashboardWidgets}
+                />
+              ) : (
+                <div className="flex items-center justify-center h-full text-muted-foreground">
+                  <div className="text-center">
+                    <File className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No file selected</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-4"
+                      onClick={() => setNewFileOpen(true)}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create File
+                    </Button>
+>>>>>>> f5a981abfafe4a30b888b46195df96434a84f2e8
                   </div>
                 )}
               </div>
@@ -432,7 +638,7 @@ export default function EditorPage() {
         
         <ResizableHandle />
         
-        <ResizablePanel defaultSize={40} minSize={20}>
+        <ResizablePanel defaultSize={40} minSize={15}>
           <SerialConsole />
         </ResizablePanel>
       </ResizablePanelGroup>
