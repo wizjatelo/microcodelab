@@ -18,8 +18,16 @@ export type DeploymentMethod = typeof deploymentMethods[number];
 
 // Widget types for dashboard builder
 export const widgetTypes = [
-  "button", "slider", "toggle", "joystick", "dropdown",
-  "gauge", "chart", "value_display", "log_console", "map"
+  // Control widgets
+  "button", "slider", "toggle", "joystick", "dropdown", "colorPicker",
+  // Display widgets
+  "gauge", "valueDisplay", "ledIndicator", "textDisplay", "progressBar",
+  // Visualization widgets
+  "lineChart", "barChart", "scatterPlot", "heatmap", "3dModel",
+  // Media widgets
+  "videoStream", "imageDisplay", "audioPlayer",
+  // Layout widgets
+  "container", "tabs", "accordion"
 ] as const;
 export type WidgetType = typeof widgetTypes[number];
 
@@ -78,11 +86,57 @@ export const widgetConfigSchema = z.object({
   deviceId: z.string().optional(), // Device to bind this widget to
   variableName: z.string().optional(),
   functionName: z.string().optional(),
+  // Numeric properties
   min: z.number().optional(),
   max: z.number().optional(),
   step: z.number().optional(),
+  value: z.union([z.number(), z.string(), z.boolean()]).optional(),
+  // Styling properties
   unit: z.string().optional(),
   color: z.string().optional(),
+  backgroundColor: z.string().optional(),
+  fontSize: z.enum(["small", "medium", "large", "extra-large"]).optional(),
+  // Behavior properties
+  updateInterval: z.number().optional(),
+  interactive: z.boolean().optional(),
+  readOnly: z.boolean().optional(),
+  // Chart-specific properties
+  maxDataPoints: z.number().optional(),
+  showGrid: z.boolean().optional(),
+  showLegend: z.boolean().optional(),
+  // Advanced properties
+  thresholds: z.object({
+    low: z.object({ value: z.number(), color: z.string() }).optional(),
+    medium: z.object({ value: z.number(), color: z.string() }).optional(),
+    high: z.object({ value: z.number(), color: z.string() }).optional(),
+  }).optional(),
+  // Custom properties for specific widgets
+  options: z.array(z.string()).optional(), // For dropdown
+  format: z.string().optional(), // For color picker
+  orientation: z.enum(["horizontal", "vertical"]).optional(),
+  mode: z.string().optional(), // For joystick
+  returnToCenter: z.boolean().optional(),
+  xVariable: z.string().optional(),
+  yVariable: z.string().optional(),
+  // Media properties
+  streamUrl: z.string().optional(),
+  imageUrl: z.string().optional(),
+  audioUrl: z.string().optional(),
+  aspectRatio: z.string().optional(),
+  autoPlay: z.boolean().optional(),
+  loop: z.boolean().optional(),
+  // Layout properties
+  padding: z.number().optional(),
+  border: z.boolean().optional(),
+  // Widget-Code Binding properties
+  bindingId: z.string().optional(), // Unique binding identifier
+  boundVariable: z.string().optional(), // Variable name bound via @bind_widget
+  boundFunction: z.string().optional(), // Function name bound via @bind_widget
+  boundFilePath: z.string().optional(), // File path where binding is defined
+  boundLineNumber: z.number().optional(), // Line number of binding annotation
+  bindingDataType: z.string().optional(), // Data type of bound variable
+  // Transform function
+  transformFunction: z.string().optional(),
 });
 
 export type WidgetConfig = z.infer<typeof widgetConfigSchema>;
@@ -100,13 +154,39 @@ export const widgetLayoutSchema = z.object({
 
 export type WidgetLayout = z.infer<typeof widgetLayoutSchema>;
 
+// Dashboard page schema
+export const dashboardPageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  widgets: z.array(widgetConfigSchema),
+  layout: z.array(widgetLayoutSchema),
+});
+
+export type DashboardPage = z.infer<typeof dashboardPageSchema>;
+
 // Dashboard schema
 export const dashboardSchema = z.object({
   id: z.string(),
   projectId: z.string(),
   name: z.string(),
-  widgets: z.array(widgetConfigSchema),
-  layout: z.array(widgetLayoutSchema),
+  widgets: z.array(widgetConfigSchema), // Legacy support
+  layout: z.array(widgetLayoutSchema), // Legacy support
+  pages: z.array(dashboardPageSchema).optional(), // Multi-page support
+  theme: z.object({
+    primary: z.string(),
+    secondary: z.string(),
+    accent: z.string(),
+    background: z.string(),
+  }).optional(),
+  responsive: z.object({
+    enabled: z.boolean(),
+    breakpoints: z.object({
+      mobile: z.number(),
+      tablet: z.number(),
+      desktop: z.number(),
+    }),
+  }).optional(),
 });
 
 export const insertDashboardSchema = dashboardSchema.omit({ id: true });
