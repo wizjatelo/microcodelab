@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
+import { registerAIRoutes } from "./ai-routes";
 import {
   insertProjectSchema,
   insertDeviceSchema,
@@ -374,6 +375,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to delete dashboard" });
     }
   });
+
+  // Register AI routes
+  registerAIRoutes(app);
 
   return httpServer;
 }

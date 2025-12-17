@@ -13,6 +13,7 @@ import {
   MoreVertical,
   Trash2,
   File,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -42,9 +43,10 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAppStore } from "@/lib/store";
-import { CodeEditor } from "@/components/code-editor";
+import { AICodeEditor } from "@/components/ai-code-editor";
 import { SerialConsole } from "@/components/serial-console";
 import { DeployDialog } from "@/components/deploy-dialog";
+import { AIAssistant } from "@/components/ai-assistant";
 import { getHardwareLabel, getLanguageLabel } from "@/components/hardware-icon";
 import type { Project, CodeFile } from "@shared/schema";
 
@@ -216,10 +218,13 @@ export default function EditorPage() {
   const createFileMutation = useMutation({
     mutationFn: async (data: { name: string; language: "arduino" | "micropython" }) => {
       const content = data.language === "arduino" ? DEFAULT_ARDUINO_CODE : DEFAULT_MICROPYTHON_CODE;
-      return apiRequest("POST", `/api/projects/${currentProjectId}/files`, {
-        name: data.name,
-        content,
-        language: data.language,
+      return apiRequest(`/api/projects/${currentProjectId}/files`, {
+        method: "POST",
+        body: {
+          name: data.name,
+          content,
+          language: data.language,
+        },
       });
     },
     onSuccess: () => {
@@ -235,7 +240,7 @@ export default function EditorPage() {
 
   const saveFileMutation = useMutation({
     mutationFn: async ({ fileId, content }: { fileId: string; content: string }) => {
-      return apiRequest("PATCH", `/api/projects/${currentProjectId}/files/${fileId}`, { content });
+      return apiRequest(`/api/projects/${currentProjectId}/files/${fileId}`, { method: "PATCH", body: { content } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", currentProjectId, "files"] });
@@ -249,7 +254,7 @@ export default function EditorPage() {
 
   const deleteFileMutation = useMutation({
     mutationFn: async (fileId: string) => {
-      return apiRequest("DELETE", `/api/projects/${currentProjectId}/files/${fileId}`);
+      return apiRequest(`/api/projects/${currentProjectId}/files/${fileId}`, { method: "DELETE" });
     },
     onSuccess: (_, deletedId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", currentProjectId, "files"] });
@@ -372,30 +377,55 @@ export default function EditorPage() {
                 </Button>
               </div>
             </div>
-            <div className="flex-1">
-              {currentFile ? (
-                <CodeEditor
-                  value={localContent[currentFile.id] ?? currentFile.content}
-                  onChange={handleContentChange}
-                  language={currentFile.language === "micropython" ? "python" : "cpp"}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <div className="text-center">
-                    <File className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No file selected</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-4"
-                      onClick={() => setNewFileOpen(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create File
-                    </Button>
+            <div className="flex flex-1 overflow-hidden">
+              {/* Main Editor Area */}
+              <div className="flex-1 overflow-hidden">
+                {currentFile ? (
+                  <AICodeEditor
+                    value={localContent[currentFile.id] ?? currentFile.content}
+                    onChange={handleContentChange}
+                    language={currentFile.language === "micropython" ? "python" : "cpp"}
+                    fileName={currentFile.name}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    <div className="text-center">
+                      <File className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>No file selected</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-4"
+                        onClick={() => setNewFileOpen(true)}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Create File
+                      </Button>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              
+              {/* Fixed AI Assistant Panel - Kiro AI Style */}
+              <div className="w-[420px] flex-shrink-0 overflow-hidden">
+                {currentFile ? (
+                  <AIAssistant
+                    code={localContent[currentFile.id] ?? currentFile.content}
+                    language={currentFile.language === "micropython" ? "python" : "cpp"}
+                    fileName={currentFile.name}
+                  />
+                ) : (
+                  <div className="flex flex-col h-full bg-background border-l">
+                    <div className="flex items-center gap-2 px-4 py-3 border-b">
+                      <Zap className="h-4 w-4 text-blue-500" />
+                      <h3 className="font-semibold text-sm">AI Assistant</h3>
+                    </div>
+                    <div className="flex items-center justify-center flex-1 text-muted-foreground">
+                      <p className="text-sm">Open a file to use AI Assistant</p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </ResizablePanel>
