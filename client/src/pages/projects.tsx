@@ -183,7 +183,7 @@ export default function ProjectsPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newProject) => {
-      return apiRequest("POST", "/api/projects", data);
+      return apiRequest("/api/projects", { method: "POST", body: data });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
@@ -210,7 +210,7 @@ export default function ProjectsPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/projects/${id}`);
+      return apiRequest(`/api/projects/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects"] });

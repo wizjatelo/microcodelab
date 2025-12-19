@@ -19,7 +19,18 @@ export async function apiRequest<T>(
   });
 
   await throwIfResNotOk(res);
-  return await res.json();
+  
+  // Handle 204 No Content responses or empty bodies
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
+  
+  const text = await res.text();
+  if (!text) {
+    return undefined as T;
+  }
+  
+  return JSON.parse(text);
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -28,7 +39,11 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
+    // Join query key parts, handling the case where first part already starts with /
+    const url = queryKey.length === 1 
+      ? queryKey[0] as string 
+      : queryKey.join("/").replace(/\/+/g, "/");
+    const res = await fetch(url, {
       credentials: "include",
     });
 

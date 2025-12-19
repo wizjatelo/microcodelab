@@ -53,7 +53,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAppStore } from "@/lib/store";
 import { renderWidget, widgetDefinitions } from "@/components/widgets";
 import { ConnectionIndicator } from "@/components/connection-status";
-import { AIAssistant } from "@/components/ai-assistant";
+import { DashboardAIAssistant } from "@/components/dashboard-ai-assistant";
 import { DashboardTemplates } from "@/components/dashboard-templates";
 import { DashboardExport } from "@/components/dashboard-export";
 import { WidgetCodeLink } from "@/components/widget-code-link";
@@ -536,10 +536,13 @@ export default function DashboardPage() {
 
   const createMutation = useMutation({
     mutationFn: async (name: string) => {
-      const response = await apiRequest("POST", `/api/projects/${currentProjectId}/dashboards`, {
-        name,
-        widgets: [],
-        layout: [],
+      const response = await apiRequest(`/api/projects/${currentProjectId}/dashboards`, {
+        method: "POST",
+        body: {
+          name,
+          widgets: [],
+          layout: [],
+        },
       });
       return response as unknown as Dashboard;
     },
@@ -556,9 +559,12 @@ export default function DashboardPage() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      return apiRequest("PATCH", `/api/projects/${currentProjectId}/dashboards/${currentDashboardId}`, {
-        widgets: localWidgets,
-        layout: localLayout,
+      return apiRequest(`/api/projects/${currentProjectId}/dashboards/${currentDashboardId}`, {
+        method: "PATCH",
+        body: {
+          widgets: localWidgets,
+          layout: localLayout,
+        },
       });
     },
     onSuccess: () => {
@@ -844,11 +850,6 @@ export default function DashboardPage() {
               >
                 <GripVertical className="h-3 w-3" />
               </Button>
-              <AIAssistant
-                widgets={localWidgets}
-                onAddWidget={handleAddWidget}
-                onAutoLayout={handleAutoLayout}
-              />
               <DashboardTemplates onApplyTemplate={handleApplyTemplate} />
             </div>
           )}
@@ -871,6 +872,13 @@ export default function DashboardPage() {
               layout={localLayout}
             />
           )}
+          
+          {/* AI Assistant - Extreme Right */}
+          <DashboardAIAssistant
+            widgets={localWidgets}
+            onAddWidget={handleAddWidget}
+            onAutoLayout={handleAutoLayout}
+          />
         </div>
       </header>
 

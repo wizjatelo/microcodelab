@@ -10,14 +10,11 @@ import {
   X,
   ChevronLeft,
   File,
-<<<<<<< HEAD
   Zap,
-=======
   Play,
   CheckCircle2,
   XCircle,
   Loader2,
->>>>>>> f5a981abfafe4a30b888b46195df96434a84f2e8
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -51,6 +48,7 @@ import { AIAssistant } from "@/components/ai-assistant";
 import { getHardwareLabel, getLanguageLabel } from "@/components/hardware-icon";
 import { analyzeCode } from "@/services/code-analyzer";
 import type { Project, CodeFile } from "@shared/schema";
+
 
 const DEFAULT_ARDUINO_CODE = `// µCodeLab - Arduino Sketch
 // @remote_access variables can be monitored/controlled from dashboard
@@ -184,6 +182,7 @@ function NoProjectSelected() {
   );
 }
 
+
 export default function EditorPage() {
   const { currentProjectId, currentFileId, setCurrentFile, addLog } = useAppStore();
   const [deployOpen, setDeployOpen] = useState(false);
@@ -307,6 +306,7 @@ export default function EditorPage() {
     const name = newFileName.endsWith(extension) ? newFileName : `${newFileName}${extension}`;
     createFileMutation.mutate({ name, language });
   };
+
 
   const handleTest = async () => {
     if (!currentFile) {
@@ -462,6 +462,7 @@ export default function EditorPage() {
     );
   }
 
+
   return (
     <div className="flex flex-col h-full">
       <header className="flex items-center justify-between gap-4 px-4 py-2 border-b bg-card">
@@ -555,7 +556,6 @@ export default function EditorPage() {
                 </Button>
               </div>
             </div>
-<<<<<<< HEAD
             <div className="flex flex-1 overflow-hidden">
               {/* Main Editor Area */}
               <div className="flex-1 overflow-hidden">
@@ -581,33 +581,6 @@ export default function EditorPage() {
                         Create File
                       </Button>
                     </div>
-=======
-            <div className="flex-1">
-              {currentFile ? (
-                <CodeEditor
-                  value={localContent[currentFile.id] ?? currentFile.content}
-                  onChange={handleContentChange}
-                  language={currentFile.language === "micropython" ? "python" : "cpp"}
-                  onSave={handleSave}
-                  fileName={currentFile.name}
-                  filePath={currentFile.name}
-                  widgets={dashboardWidgets}
-                />
-              ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  <div className="text-center">
-                    <File className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No file selected</p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="mt-4"
-                      onClick={() => setNewFileOpen(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create File
-                    </Button>
->>>>>>> f5a981abfafe4a30b888b46195df96434a84f2e8
                   </div>
                 )}
               </div>
@@ -642,6 +615,7 @@ export default function EditorPage() {
           <SerialConsole />
         </ResizablePanel>
       </ResizablePanelGroup>
+
 
       <Dialog open={newFileOpen} onOpenChange={setNewFileOpen}>
         <DialogContent>

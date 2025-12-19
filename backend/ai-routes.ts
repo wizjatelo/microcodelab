@@ -68,20 +68,32 @@ const NVIDIA_API_ENDPOINT = process.env.NVIDIA_API_ENDPOINT || "https://integrat
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || "deepseek-v3_2";
 // ============== RECOMMENDED UPDATES END ================
 
+interface AIRequestOptions {
+  maxTokens?: number;
+  temperature?: number;
+  stream?: boolean;
+}
+
 async function callNvidiaAPI(
   systemPrompt: string,
   userMessage: string,
-  conversationHistory?: Array<{ role: string; content: string }>
+  conversationHistory?: Array<{ role: string; content: string }>,
+  options: AIRequestOptions = {}
 ): Promise<string> {
   if (!NVIDIA_API_KEY) {
     throw new Error("NVIDIA_API_KEY not configured");
   }
 
+  // Limit conversation history to last 4 messages for speed
+  const recentHistory = (conversationHistory || []).slice(-4);
+
   const messages = [
     { role: "system", content: systemPrompt },
-    ...(conversationHistory || []),
+    ...recentHistory,
     { role: "user", content: userMessage },
   ];
+
+  const { maxTokens = 512, temperature = 0.5 } = options;
 
   try {
     const response = await fetch(NVIDIA_API_ENDPOINT, {
@@ -91,11 +103,12 @@ async function callNvidiaAPI(
         Authorization: `Bearer ${NVIDIA_API_KEY}`,
       },
       body: JSON.stringify({
-        model: NVIDIA_MODEL, // Updated to use the variable
+        model: NVIDIA_MODEL,
         messages,
-        temperature: 0.7,
-        top_p: 0.9,
-        max_tokens: 1024,
+        temperature,
+        top_p: 0.85,
+        max_tokens: maxTokens,
+        frequency_penalty: 0.1,
       }),
     });
 
@@ -143,7 +156,10 @@ ${fileName ? `File: ${fileName}` : ""}
 
 Provide exactly 3-5 intelligent suggestions.`;
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 300,
+        temperature: 0.3,
+      });
 
       let suggestions = [];
       try {
@@ -204,7 +220,10 @@ Only return the JSON, no other text.`;
 ${code}
 \`\`\``;
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 400,
+        temperature: 0.3,
+      });
 
       let analysis;
       try {
@@ -248,48 +267,57 @@ ${code}
         fullMessage += `\n\nError: ${context.errorMessage}`;
       }
 
-      const defaultSystemPrompt = `You are a conversational AI assistant designed to produce clear, structured, and user-friendly outputs for IoT and embedded systems development.
+      const defaultSystemPrompt = `You are µCodeLab AI, a professional embedded systems assistant. Be concise, direct, and technical.
 
-**Output Structure (STRICT FORMATTING)**:
+**RESPONSE STYLE**:
+- Be brief and to the point - no filler phrases like "Let me help you" or "Here's what I found"
+- Skip obvious observations - don't describe what the code already clearly does
+- Focus on actionable insights and improvements only
+- Use short, punchy sentences
+- No excessive praise or pleasantries
 
-1. **Response Text**: Begin with your conversational explanation, analysis, or answer in plain, well-formatted sentences or paragraphs. Use proper markdown formatting with **bold** for key terms and bullet points for lists.
+**FORMAT RULES**:
+1. Start with a 1-2 sentence summary of the key insight or solution
+2. If suggesting changes, list them as bullet points (max 3-4 points)
+3. Code blocks must be clean and copy-ready - no inline comments explaining obvious things
+4. End with a single actionable next step if relevant
 
-2. **Visual Separator**: After the text explanation, place a clean horizontal separator line (---).
-
-3. **Code Block**: After the separator, place ALL code inside a dedicated, labeled code fence.
-
-**Code Block Requirements**:
-- **Label**: Start with a brief descriptive label (e.g., "Solution Code", "Arduino Sketch", "MicroPython Script")
-- **Fence**: Use triple backticks (\`\`\`) to open and close the block
-- **Language**: Immediately after opening backticks, specify the language (cpp for Arduino, python for MicroPython)
-- **Copy-Friendly**: Ensure code is free of leading/trailing text, line numbers, or annotations that would hinder copying
-- **Complete**: Provide full, working code that can be directly copied and used
-
-**Response Pattern**:
-\`\`\`
-[Conversational explanation with context and reasoning]
-
-**Key Points**:
-- Point 1
-- Point 2
-- Point 3
-
----
-
-**[Descriptive Label]**
-\`\`\`language
-[Clean, copy-ready code here]
+**CODE BLOCKS**:
+\`\`\`cpp
+// Only include essential comments
+// Code should be production-ready
 \`\`\`
 
-**Next Steps**: [Proactive suggestions]
+**AVOID**:
+- Long introductions or conclusions
+- Repeating what the user already knows
+- Excessive markdown headers
+- Phrases like "Great question!", "I'd be happy to help", "Let me know if..."
+- Bullet points for things that could be one sentence
+
+**EXAMPLE GOOD RESPONSE**:
+"Your delay() blocks execution. Use millis() for non-blocking timing:
+
+\`\`\`cpp
+unsigned long lastUpdate = 0;
+void loop() {
+  if (millis() - lastUpdate >= 100) {
+    lastUpdate = millis();
+    digitalWrite(LED_BUILTIN, ledState);
+  }
+}
 \`\`\`
 
-**Technical Focus**: Arduino, ESP32, ESP8266, Raspberry Pi Pico. Always consider hardware constraints, memory efficiency, and real-time requirements.`;
+This keeps your loop responsive for other tasks."
+
+**EXAMPLE BAD RESPONSE**:
+"It looks like you have an Arduino sketch that controls the built-in LED on your board. Here's a brief analysis of your code: **Code Quality:** Your code is well-structured..." (too verbose, states the obvious)`;
 
       const response = await callNvidiaAPI(
         systemPrompt || defaultSystemPrompt,
         fullMessage,
-        history || []
+        history || [],
+        { maxTokens: 800, temperature: 0.6 }
       );
 
       res.json({ message: response });
@@ -360,7 +388,10 @@ ${description}`;
         userMessage += `\n\nContext: ${context}`;
       }
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 600,
+        temperature: 0.4,
+      });
 
       const codeMatch = response.match(/```[\w]*\n([\s\S]*?)```/);
       const code = codeMatch ? codeMatch[1].trim() : response;
@@ -445,7 +476,10 @@ ${code}
         userMessage += `\n\nContext: ${context}`;
       }
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 600,
+        temperature: 0.5,
+      });
 
       res.json({ review: response });
     } catch (error) {
@@ -523,7 +557,10 @@ Error: ${errorMessage}`;
         userMessage += `\n\nCode:\n\`\`\`${language}\n${code}\n\`\`\``;
       }
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 600,
+        temperature: 0.4,
+      });
 
       res.json({ solution: response });
     } catch (error) {
@@ -600,7 +637,10 @@ ${code}
         userMessage += `\n**Selected Lines** (${selectionStart + 1}-${selectionEnd + 1}):\n\`\`\`${language}\n${selectedLines.join('\n')}\n\`\`\``;
       }
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 700,
+        temperature: 0.4,
+      });
 
       let result;
       try {
@@ -692,7 +732,10 @@ ${code}
         userMessage += `\n**File**: ${fileName}`;
       }
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 700,
+        temperature: 0.4,
+      });
 
       let result;
       try {
@@ -770,7 +813,10 @@ ${lineNumber ? `**Target Line**: ${lineNumber}` : ""}
 ${code}
 \`\`\``;
 
-      const response = await callNvidiaAPI(systemPrompt, userMessage);
+      const response = await callNvidiaAPI(systemPrompt, userMessage, undefined, {
+        maxTokens: 500,
+        temperature: 0.3,
+      });
 
       let result;
       try {

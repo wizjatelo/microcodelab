@@ -3,6 +3,8 @@ import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
 import { registerAIRoutes } from "./ai-routes";
+import { arduinoCompiler } from "./arduino-compiler";
+import { micropythonCompiler } from "./micropython-compiler";
 import {
   insertProjectSchema,
   insertDeviceSchema,
@@ -373,6 +375,114 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete dashboard" });
+    }
+  });
+
+  // ============== ARDUINO COMPILER ==============
+  
+  // Check if Arduino CLI is installed
+  app.get("/api/arduino/status", async (_req, res) => {
+    try {
+      const status = await arduinoCompiler.checkInstallation();
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to check Arduino CLI status" });
+    }
+  });
+
+  // List connected boards
+  app.get("/api/arduino/boards", async (_req, res) => {
+    try {
+      const boards = await arduinoCompiler.listBoards();
+      res.json({ boards });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to list boards" });
+    }
+  });
+
+  // Compile code (verify only)
+  app.post("/api/arduino/compile", async (req, res) => {
+    try {
+      const { code, boardType, fileName } = req.body;
+      
+      if (!code) {
+        return res.status(400).json({ error: "Code is required" });
+      }
+
+      const result = await arduinoCompiler.compile(code, boardType, fileName);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Compilation failed" });
+    }
+  });
+
+  // Compile and upload to board
+  app.post("/api/arduino/upload", async (req, res) => {
+    try {
+      const { code, port, boardType, fileName } = req.body;
+      
+      if (!code || !port) {
+        return res.status(400).json({ error: "Code and port are required" });
+      }
+
+      // Send progress updates via SSE or just return final result
+      const result = await arduinoCompiler.compileAndUpload(
+        code,
+        port,
+        boardType,
+        fileName,
+        (stage, progress) => {
+          console.log(`[arduino] ${stage}: ${progress}%`);
+        }
+      );
+      
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Upload failed" });
+    }
+  });
+
+  // ============== MICROPYTHON COMPILER ==============
+
+  // Check if mpy-cross is installed
+  app.get("/api/micropython/status", async (_req, res) => {
+    try {
+      const status = await micropythonCompiler.checkInstallation();
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to check mpy-cross status" });
+    }
+  });
+
+  // Compile Python to .mpy bytecode
+  app.post("/api/micropython/compile", async (req, res) => {
+    try {
+      const { code, fileName } = req.body;
+
+      if (!code) {
+        return res.status(400).json({ error: "Code is required" });
+      }
+
+      const result = await micropythonCompiler.compile(code, fileName || "main.py");
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Compilation failed" });
+    }
+  });
+
+  // Validate Python syntax
+  app.post("/api/micropython/validate", async (req, res) => {
+    try {
+      const { code } = req.body;
+
+      if (!code) {
+        return res.status(400).json({ error: "Code is required" });
+      }
+
+      const result = await micropythonCompiler.validateSyntax(code);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Validation failed" });
     }
   });
 

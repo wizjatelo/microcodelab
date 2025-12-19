@@ -3,6 +3,49 @@
  * Enables USB serial connection from browser to Arduino Uno
  */
 
+// Web Serial API type declarations
+declare global {
+  interface Navigator {
+    serial: Serial;
+  }
+  
+  interface Serial {
+    requestPort(options?: SerialPortRequestOptions): Promise<SerialPort>;
+    getPorts(): Promise<SerialPort[]>;
+  }
+  
+  interface SerialPortRequestOptions {
+    filters?: SerialPortFilter[];
+  }
+  
+  interface SerialPortFilter {
+    usbVendorId?: number;
+    usbProductId?: number;
+  }
+  
+  interface SerialPort {
+    readable: ReadableStream<Uint8Array> | null;
+    writable: WritableStream<Uint8Array> | null;
+    open(options: SerialOptions): Promise<void>;
+    close(): Promise<void>;
+    getInfo(): SerialPortInfo;
+  }
+  
+  interface SerialOptions {
+    baudRate: number;
+    dataBits?: number;
+    stopBits?: number;
+    parity?: 'none' | 'even' | 'odd';
+    bufferSize?: number;
+    flowControl?: 'none' | 'hardware';
+  }
+  
+  interface SerialPortInfo {
+    usbVendorId?: number;
+    usbProductId?: number;
+  }
+}
+
 export interface SerialMessage {
   type: 'data' | 'error' | 'connected' | 'disconnected' | 'tx' | 'rx';
   data?: string;
@@ -80,8 +123,22 @@ class WebSerialService {
       this.port = await navigator.serial.requestPort();
       this.log('debug', 'serial', 'Port selected by user');
       
-      // Open the port
-      await this.port.open({ baudRate });
+      // Open the port with retry logic
+      try {
+        await this.port.open({ baudRate });
+      } catch (openError: any) {
+        // Provide helpful error messages
+        if (openError.message?.includes("Failed to open serial port")) {
+          this.log('error', 'serial', '⚠️ Port is busy! Common causes:');
+          this.log('warning', 'serial', '  1. Arduino IDE Serial Monitor is open - close it');
+          this.log('warning', 'serial', '  2. Another program is using the port');
+          this.log('warning', 'serial', '  3. Try unplugging and replugging the USB cable');
+          this.log('warning', 'serial', '  4. Check Device Manager for the correct COM port');
+          throw new Error('Port is busy. Close Arduino IDE Serial Monitor or other programs using the port, then try again.');
+        }
+        throw openError;
+      }
+      
       this.log('info', 'serial', `Port opened successfully at ${baudRate} baud`);
       
       // Setup text encoder/decoder streams
@@ -95,7 +152,7 @@ class WebSerialService {
       this.writer = textEncoder.writable.getWriter();
       
       this.isConnected = true;
-      this.log('info', 'serial', 'Serial connection established - ready for communication');
+      this.log('info', 'serial', '✓ Serial connection established - ready for communication');
       this.notify({ type: 'connected', data: 'Connected to serial port', timestamp: new Date() });
       
       // Start reading loop
@@ -105,6 +162,19 @@ class WebSerialService {
       return true;
     } catch (error: any) {
       const message = error.message || 'Failed to connect';
+      
+      // User cancelled the port selection
+      if (error.name === 'NotFoundError') {
+        this.log('info', 'serial', 'Port selection cancelled by user');
+        return false;
+      }
+      
+      // No ports available
+      if (message.includes('No port selected')) {
+        this.log('warning', 'serial', 'No serial port selected. Make sure your Arduino is connected.');
+        return false;
+      }
+      
       this.log('error', 'serial', `Connection failed: ${message}`);
       this.notify({ type: 'error', data: message, timestamp: new Date() });
       return false;
