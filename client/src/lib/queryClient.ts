@@ -43,6 +43,7 @@ export const getQueryFn: <T>(options: {
     const url = queryKey.length === 1 
       ? queryKey[0] as string 
       : queryKey.join("/").replace(/\/+/g, "/");
+    
     const res = await fetch(url, {
       credentials: "include",
     });
@@ -60,8 +61,8 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: false,
-      staleTime: Infinity,
+      refetchOnWindowFocus: true,
+      staleTime: 5000, // 5 seconds
       retry: false,
     },
     mutations: {

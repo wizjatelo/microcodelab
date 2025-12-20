@@ -61,7 +61,7 @@ export function SerialConsole({ className }: SerialConsoleProps) {
   const { logs, clearLogs } = useAppStore();
   const [filter, setFilter] = useState("");
   const [visibleLevels, setVisibleLevels] = useState<Set<LogLevel>>(
-    new Set(["info", "warning", "error", "debug"])
+    () => new Set<LogLevel>(["info", "warning", "error", "debug"])
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);

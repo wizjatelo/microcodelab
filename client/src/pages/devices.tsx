@@ -212,7 +212,7 @@ export default function DevicesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newDevice) => {
-      return apiRequest("POST", "/api/devices", data);
+      return apiRequest("/api/devices", { method: "POST", body: data });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
@@ -239,7 +239,7 @@ export default function DevicesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/devices/${id}`);
+      return apiRequest(`/api/devices/${id}`, { method: "DELETE" });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
