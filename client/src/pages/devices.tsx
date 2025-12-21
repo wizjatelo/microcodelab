@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import {
   Plus,
   Cpu,
@@ -11,6 +12,12 @@ import {
   WifiOff,
   Settings,
   Link2,
+  Unlink,
+  Code,
+  LayoutDashboard,
+  Zap,
+  Play,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -54,6 +61,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAppStore } from "@/lib/store";
 import { ConnectionStatusBadge, ConnectionIndicator } from "@/components/connection-status";
 import { HardwareIcon, getHardwareLabel } from "@/components/hardware-icon";
+import { FolderOpen } from "lucide-react";
 import type { Device, HardwareType, ConnectionStatus, Project } from "@shared/schema";
 import { hardwareTypes } from "@shared/schema";
 
@@ -71,8 +79,18 @@ function formatLastSeen(lastSeen?: string): string {
   return date.toLocaleDateString();
 }
 
-function DeviceRow({ device, projects, onDelete }: { device: Device; projects: Project[]; onDelete: () => void }) {
+function DeviceRow({ device, projects, onDelete, onLink, onUnlink, onOpenEditor, onOpenDashboard, onConfigure }: { 
+  device: Device; 
+  projects: Project[]; 
+  onDelete: () => void;
+  onLink: (projectId: string) => void;
+  onUnlink: () => void;
+  onOpenEditor: () => void;
+  onOpenDashboard: () => void;
+  onConfigure: () => void;
+}) {
   const linkedProject = projects.find((p) => p.id === device.projectId);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
 
   return (
     <TableRow className="h-16" data-testid={`row-device-${device.id}`}>
@@ -97,12 +115,60 @@ function DeviceRow({ device, projects, onDelete }: { device: Device; projects: P
       </TableCell>
       <TableCell>
         {linkedProject ? (
-          <Badge variant="outline" className="text-xs">
-            <Link2 className="h-3 w-3 mr-1" />
-            {linkedProject.name}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="text-xs">
+              <Link2 className="h-3 w-3 mr-1" />
+              {linkedProject.name}
+            </Badge>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onOpenEditor} title="Open in Editor">
+                <Code className="h-3 w-3" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={onOpenDashboard} title="Open Dashboard">
+                <LayoutDashboard className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
         ) : (
-          <span className="text-xs text-muted-foreground">Not linked</span>
+          <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 text-xs">
+                <Link2 className="h-3 w-3 mr-1" />
+                Link Project
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Link Device to Project</DialogTitle>
+                <DialogDescription>
+                  Select a project to link with {device.name}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-2">
+                {projects.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No projects available. Create a project first.</p>
+                ) : (
+                  projects.map((project) => (
+                    <Button
+                      key={project.id}
+                      variant="outline"
+                      className="w-full justify-start"
+                      onClick={() => {
+                        onLink(project.id);
+                        setLinkDialogOpen(false);
+                      }}
+                    >
+                      <FolderOpen className="h-4 w-4 mr-2" />
+                      {project.name}
+                      <Badge variant="secondary" className="ml-auto text-xs">
+                        {project.language}
+                      </Badge>
+                    </Button>
+                  ))
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         )}
       </TableCell>
       <TableCell>
@@ -118,7 +184,16 @@ function DeviceRow({ device, projects, onDelete }: { device: Device; projects: P
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem>
+            <DropdownMenuItem onClick={onOpenEditor} disabled={!linkedProject}>
+              <Code className="h-4 w-4 mr-2" />
+              Open Editor
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onOpenDashboard} disabled={!linkedProject}>
+              <LayoutDashboard className="h-4 w-4 mr-2" />
+              Open Dashboard
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onConfigure}>
               <Settings className="h-4 w-4 mr-2" />
               Configure
             </DropdownMenuItem>
@@ -126,6 +201,12 @@ function DeviceRow({ device, projects, onDelete }: { device: Device; projects: P
               <RefreshCw className="h-4 w-4 mr-2" />
               Restart
             </DropdownMenuItem>
+            {linkedProject && (
+              <DropdownMenuItem onClick={onUnlink}>
+                <Unlink className="h-4 w-4 mr-2" />
+                Unlink Project
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive"
@@ -193,6 +274,8 @@ function EmptyDevices({ onAddNew, onScan }: { onAddNew: () => void; onScan: () =
 
 export default function DevicesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [configDialogOpen, setConfigDialogOpen] = useState(false);
+  const [selectedDevice, setSelectedDevice] = useState<Device | null>(null);
   const [scanning, setScanning] = useState(false);
   const [newDevice, setNewDevice] = useState({
     name: "",
@@ -200,7 +283,15 @@ export default function DevicesPage() {
     ipAddress: "",
     status: "offline" as ConnectionStatus,
   });
+  const [deviceConfig, setDeviceConfig] = useState({
+    name: "",
+    ipAddress: "",
+    connectionType: "wifi",
+    role: "primary",
+  });
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
+  const { setCurrentProject, setCurrentDashboard } = useAppStore();
 
   const { data: devices, isLoading } = useQuery<Device[]>({
     queryKey: ["/api/devices"],
@@ -257,6 +348,100 @@ export default function DevicesPage() {
     },
   });
 
+  const linkMutation = useMutation({
+    mutationFn: async ({ deviceId, projectId }: { deviceId: string; projectId: string }) => {
+      return apiRequest(`/api/devices/${deviceId}`, { method: "PATCH", body: { projectId } });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({
+        title: "Device linked",
+        description: "Device has been linked to the project.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to link device.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: async (deviceId: string) => {
+      return apiRequest(`/api/devices/${deviceId}`, { method: "PATCH", body: { projectId: null } });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      toast({
+        title: "Device unlinked",
+        description: "Device has been unlinked from the project.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to unlink device.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ deviceId, updates }: { deviceId: string; updates: Record<string, any> }) => {
+      return apiRequest(`/api/devices/${deviceId}`, { method: "PATCH", body: updates });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/devices"] });
+      setConfigDialogOpen(false);
+      setSelectedDevice(null);
+      toast({
+        title: "Device updated",
+        description: "Device configuration has been saved.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update device.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleConfigure = (device: Device) => {
+    setSelectedDevice(device);
+    setDeviceConfig({
+      name: device.name,
+      ipAddress: device.ipAddress || "",
+      connectionType: (device as any).connectionType || "wifi",
+      role: (device as any).role || "primary",
+    });
+    setConfigDialogOpen(true);
+  };
+
+  const handleSaveConfig = () => {
+    if (!selectedDevice) return;
+    if (!deviceConfig.name.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a device name.",
+        variant: "destructive",
+      });
+      return;
+    }
+    updateMutation.mutate({
+      deviceId: selectedDevice.id,
+      updates: {
+        name: deviceConfig.name,
+        ipAddress: deviceConfig.ipAddress || null,
+        connectionType: deviceConfig.connectionType,
+        role: deviceConfig.role,
+      },
+    });
+  };
+
   const handleScan = async () => {
     setScanning(true);
     // Simulate network scan
@@ -278,6 +463,20 @@ export default function DevicesPage() {
       return;
     }
     createMutation.mutate(newDevice);
+  };
+
+  const handleOpenEditor = (device: Device) => {
+    if (device.projectId) {
+      setCurrentProject(device.projectId);
+      setLocation("/editor");
+    }
+  };
+
+  const handleOpenDashboard = (device: Device) => {
+    if (device.projectId) {
+      setCurrentProject(device.projectId);
+      setLocation("/dashboard");
+    }
   };
 
   const onlineCount = devices?.filter((d) => d.status === "online").length || 0;
@@ -414,6 +613,11 @@ export default function DevicesPage() {
                     device={device}
                     projects={projects || []}
                     onDelete={() => deleteMutation.mutate(device.id)}
+                    onLink={(projectId) => linkMutation.mutate({ deviceId: device.id, projectId })}
+                    onUnlink={() => unlinkMutation.mutate(device.id)}
+                    onOpenEditor={() => handleOpenEditor(device)}
+                    onOpenDashboard={() => handleOpenDashboard(device)}
+                    onConfigure={() => handleConfigure(device)}
                   />
                 ))}
               </TableBody>
@@ -421,6 +625,103 @@ export default function DevicesPage() {
           </Card>
         )}
       </div>
+
+      {/* Device Configuration Dialog */}
+      <Dialog open={configDialogOpen} onOpenChange={setConfigDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Configure Device</DialogTitle>
+            <DialogDescription>
+              Update device settings and connection parameters.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="config-name">Device Name</Label>
+              <Input
+                id="config-name"
+                placeholder="Device name"
+                value={deviceConfig.name}
+                onChange={(e) => setDeviceConfig({ ...deviceConfig, name: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="config-ip">IP Address</Label>
+              <Input
+                id="config-ip"
+                placeholder="192.168.1.100"
+                value={deviceConfig.ipAddress}
+                onChange={(e) => setDeviceConfig({ ...deviceConfig, ipAddress: e.target.value })}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Connection Type</Label>
+              <Select
+                value={deviceConfig.connectionType}
+                onValueChange={(value) => setDeviceConfig({ ...deviceConfig, connectionType: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="wifi">
+                    <div className="flex items-center gap-2">
+                      <Wifi className="h-4 w-4" />
+                      WiFi
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="serial">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-4 w-4" />
+                      Serial (USB)
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="mqtt">
+                    <div className="flex items-center gap-2">
+                      <ExternalLink className="h-4 w-4" />
+                      MQTT
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="websocket">
+                    <div className="flex items-center gap-2">
+                      <Link2 className="h-4 w-4" />
+                      WebSocket
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Device Role</Label>
+              <Select
+                value={deviceConfig.role}
+                onValueChange={(value) => setDeviceConfig({ ...deviceConfig, role: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="primary">Primary Controller</SelectItem>
+                  <SelectItem value="secondary">Secondary Controller</SelectItem>
+                  <SelectItem value="sensor">Sensor Node</SelectItem>
+                  <SelectItem value="actuator">Actuator Node</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfigDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveConfig}
+              disabled={updateMutation.isPending}
+            >
+              {updateMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

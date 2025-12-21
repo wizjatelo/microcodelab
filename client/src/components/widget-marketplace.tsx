@@ -45,6 +45,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import WidgetIntegrationService from "@/services/widget-integration";
 import type { WidgetType } from "@shared/schema";
+import { widgetDefinitions } from "@/components/widgets";
 
 interface ExternalWidget {
   id: string;

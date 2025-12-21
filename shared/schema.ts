@@ -20,14 +20,40 @@ export type DeploymentMethod = typeof deploymentMethods[number];
 export const widgetTypes = [
   // Control widgets
   "button", "slider", "toggle", "joystick", "dropdown", "colorPicker",
+  "buttonGroup", "rangeSlider", "radioGroup", "textInput", "dateTimePicker",
   // Display widgets
   "gauge", "valueDisplay", "ledIndicator", "textDisplay", "progressBar",
+  "sparklineNumber", "deltaIndicator", "semicircularGauge", "speedometer",
+  "thermometer", "tankGauge", "batteryIndicator", "signalStrength",
   // Visualization widgets
   "lineChart", "barChart", "scatterPlot", "heatmap", "3dModel",
+  "areaChart", "radarChart", "pieChart", "donutChart", "treeMap",
+  // Status & Alert widgets
+  "statusLight", "alertBanner", "alertList", "thresholdIndicator", "trendArrow",
+  // Environmental widgets
+  "weatherStation", "temperatureCard", "humidityDisplay", "airQualityIndex",
+  "co2Monitor", "lightLevel", "soundLevel", "windDirection",
+  // Energy widgets
+  "powerMeter", "energyUsage", "solarProduction", "batteryLevel", "costCalculator",
+  // Industrial widgets
+  "flowMeter", "levelIndicator", "valvePosition", "motorStatus", "vibrationMonitor",
+  "pressureGauge", "oeeCalculator", "emergencyStop",
+  // Smart Home widgets
+  "thermostatControl", "blindController", "doorLock", "securityPanel", "sceneController",
   // Media widgets
-  "videoStream", "imageDisplay", "audioPlayer",
+  "videoStream", "imageDisplay", "audioPlayer", "cameraGrid", "imageGallery",
+  // Data widgets
+  "dataTable", "kpiCard", "statisticsCard", "eventTimeline", "logViewer",
+  // AI widgets
+  "forecastDisplay", "anomalyIndicator", "insightCard", "predictionChart",
+  // System widgets
+  "resourceMonitor", "networkTopology", "uptimeDisplay", "latencyDisplay",
   // Layout widgets
-  "container", "tabs", "accordion"
+  "container", "tabs", "accordion", "carousel", "splitPanel",
+  // Device widgets - linked to devices and code
+  "deviceStatus", "gpioControl", "sensorMonitor", "variableWatch", "functionTrigger", "codeSnippet",
+  // Map widgets
+  "deviceMap", "gpsCoordinates"
 ] as const;
 export type WidgetType = typeof widgetTypes[number];
 
@@ -137,6 +163,24 @@ export const widgetConfigSchema = z.object({
   bindingDataType: z.string().optional(), // Data type of bound variable
   // Transform function
   transformFunction: z.string().optional(),
+  // Device widget properties
+  linkedCodeFile: z.string().optional(), // Linked code file path
+  gpioPins: z.array(z.number()).optional(), // GPIO pins for GPIO control widget
+  functions: z.array(z.object({
+    name: z.string(),
+    params: z.array(z.string()),
+  })).optional(), // Functions for function trigger widget
+  codeContent: z.string().optional(), // Code content for code snippet widget
+  codeLanguage: z.string().optional(), // Code language for code snippet widget
+  // Additional widget properties
+  history: z.array(z.number()).optional(), // Historical data for sparkline
+  previousValue: z.number().optional(), // Previous value for delta indicator
+  charging: z.boolean().optional(), // Charging state for battery widgets
+  trend: z.enum(["up", "down", "stable"]).optional(), // Trend direction
+  speed: z.number().optional(), // Wind speed for wind direction widget
+  power: z.number().optional(), // Power value for battery/energy widgets
+  rate: z.number().optional(), // Rate for cost calculator
+  predicted: z.array(z.number()).optional(), // Predicted values for AI widgets
 });
 
 export type WidgetConfig = z.infer<typeof widgetConfigSchema>;

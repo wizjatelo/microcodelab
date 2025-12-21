@@ -25,7 +25,9 @@ from storage import (
     InsertProject,
     InsertCodeFile,
     InsertDevice,
-    InsertDashboard
+    InsertDashboard,
+    InsertDeviceLink,
+    InsertCodeBinding
 )
 from ai_routes import router as ai_router
 from compiler_routes import router as compiler_router
@@ -271,6 +273,344 @@ async def delete_device(device_id: str):
     if not deleted:
         raise HTTPException(404, "Device not found")
     return Response(status_code=204)
+
+
+# ============== Device Linking API ==============
+
+@app.get("/api/devices/{device_id}/links")
+async def get_device_links(device_id: str):
+    """Get all links for a device"""
+    links = storage.get_device_links(device_id=device_id)
+    return [l.model_dump() for l in links]
+
+
+@app.post("/api/devices/{device_id}/links", status_code=201)
+async def create_device_link(device_id: str, data: dict):
+    """Link a device to a project"""
+    link_data = InsertDeviceLink(
+        deviceId=device_id,
+        projectId=data.get("projectId"),
+        dashboardId=data.get("dashboardId"),
+        codeFileId=data.get("codeFileId"),
+        role=data.get("role", "primary")
+    )
+    link = storage.create_device_link(link_data)
+    
+    # Broadcast link event
+    await broadcast_to_websockets({
+        "type": "device_linked",
+        "deviceId": device_id,
+        "projectId": data.get("projectId"),
+        "linkId": link.id
+    })
+    
+    return link.model_dump()
+
+
+@app.delete("/api/devices/{device_id}/links/{link_id}", status_code=204)
+async def delete_device_link(device_id: str, link_id: str):
+    """Unlink a device from a project"""
+    deleted = storage.delete_device_link(link_id)
+    if not deleted:
+        raise HTTPException(404, "Link not found")
+    
+    # Broadcast unlink event
+    await broadcast_to_websockets({
+        "type": "device_unlinked",
+        "deviceId": device_id,
+        "linkId": link_id
+    })
+    
+    return Response(status_code=204)
+
+
+@app.get("/api/projects/{project_id}/devices")
+async def get_project_devices(project_id: str):
+    """Get all devices linked to a project"""
+    devices = storage.get_project_devices(project_id)
+    return [d.model_dump() for d in devices]
+
+
+# ============== Device Sensor Data API ==============
+
+@app.get("/api/devices/{device_id}/sensors")
+async def get_device_sensors(device_id: str):
+    """Get current sensor data for a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    return {
+        "deviceId": device_id,
+        "sensorData": device.sensorData or {},
+        "lastSeen": device.lastSeen,
+        "status": device.status
+    }
+
+
+@app.post("/api/devices/{device_id}/sensors")
+async def update_device_sensors(device_id: str, data: dict):
+    """Update sensor data for a device"""
+    device = storage.update_device_sensor_data(device_id, data)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    # Store in history
+    for sensor_name, value in data.items():
+        storage.add_sensor_reading(device_id, sensor_name, value)
+    
+    # Broadcast sensor update
+    await broadcast_to_websockets({
+        "type": "sensor_update",
+        "deviceId": device_id,
+        "data": data,
+        "timestamp": datetime.now().isoformat()
+    })
+    
+    return device.model_dump()
+
+
+@app.get("/api/devices/{device_id}/sensors/history")
+async def get_sensor_history(device_id: str, sensor: str = None, limit: int = 100):
+    """Get sensor history for a device"""
+    history = storage.get_sensor_history(device_id, sensor, limit)
+    return [h.model_dump() for h in history]
+
+
+# ============== Code Bindings API ==============
+
+@app.get("/api/devices/{device_id}/bindings")
+async def get_device_bindings(device_id: str):
+    """Get code bindings for a device"""
+    bindings = storage.get_code_bindings(device_id=device_id)
+    return [b.model_dump() for b in bindings]
+
+
+@app.post("/api/devices/{device_id}/bindings", status_code=201)
+async def create_code_binding(device_id: str, data: dict):
+    """Create a code binding for a device"""
+    binding_data = InsertCodeBinding(
+        codeFileId=data.get("codeFileId"),
+        deviceId=device_id,
+        variableName=data.get("variableName"),
+        variableType=data.get("variableType", "unknown"),
+        annotation=data.get("annotation", "@remote_access"),
+        lineNumber=data.get("lineNumber", 0),
+        widgetId=data.get("widgetId")
+    )
+    binding = storage.create_code_binding(binding_data)
+    return binding.model_dump()
+
+
+@app.delete("/api/bindings/{binding_id}", status_code=204)
+async def delete_binding(binding_id: str):
+    """Delete a code binding"""
+    deleted = storage.delete_code_binding(binding_id)
+    if not deleted:
+        raise HTTPException(404, "Binding not found")
+    return Response(status_code=204)
+
+
+@app.get("/api/projects/{project_id}/files/{file_id}/bindings")
+async def get_file_bindings(project_id: str, file_id: str):
+    """Get code bindings for a file"""
+    bindings = storage.get_code_bindings(code_file_id=file_id)
+    return [b.model_dump() for b in bindings]
+
+
+# ============== GPIO Control API ==============
+
+@app.post("/api/devices/{device_id}/gpio/{pin}")
+async def control_gpio(device_id: str, pin: int, data: dict):
+    """Control a GPIO pin on a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    value = data.get("value", 0)
+    mode = data.get("mode", "output")  # output, input, pwm
+    
+    # Send command to device
+    result = device_manager.send_command("gpio_write", {
+        "pin": pin,
+        "value": value,
+        "mode": mode
+    })
+    
+    # Broadcast GPIO change
+    await broadcast_to_websockets({
+        "type": "gpio_change",
+        "deviceId": device_id,
+        "pin": pin,
+        "value": value,
+        "mode": mode
+    })
+    
+    return {
+        "success": result.success,
+        "message": result.message,
+        "pin": pin,
+        "value": value
+    }
+
+
+@app.get("/api/devices/{device_id}/gpio/{pin}")
+async def read_gpio(device_id: str, pin: int):
+    """Read a GPIO pin value from a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    result = device_manager.send_command("gpio_read", {"pin": pin})
+    
+    return {
+        "success": result.success,
+        "pin": pin,
+        "value": result.data.get("value") if result.data else None
+    }
+
+
+# ============== Function Execution API ==============
+
+@app.post("/api/devices/{device_id}/functions/{function_name}")
+async def execute_function(device_id: str, function_name: str, data: dict = None):
+    """Execute a function on a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    params = data.get("params", []) if data else []
+    
+    result = device_manager.send_command("call_function", {
+        "function": function_name,
+        "params": params
+    })
+    
+    # Broadcast function call
+    await broadcast_to_websockets({
+        "type": "function_called",
+        "deviceId": device_id,
+        "function": function_name,
+        "params": params,
+        "result": result.data
+    })
+    
+    return {
+        "success": result.success,
+        "message": result.message,
+        "function": function_name,
+        "result": result.data
+    }
+
+
+# ============== Variable Control API ==============
+
+@app.get("/api/devices/{device_id}/variables/{variable_name}")
+async def get_variable(device_id: str, variable_name: str):
+    """Get a variable value from a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    result = device_manager.send_command("get_variable", {"name": variable_name})
+    
+    return {
+        "success": result.success,
+        "variable": variable_name,
+        "value": result.data.get("value") if result.data else None
+    }
+
+
+@app.post("/api/devices/{device_id}/variables/{variable_name}")
+async def set_variable(device_id: str, variable_name: str, data: dict):
+    """Set a variable value on a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    value = data.get("value")
+    
+    result = device_manager.send_command("set_variable", {
+        "name": variable_name,
+        "value": value
+    })
+    
+    # Broadcast variable change
+    await broadcast_to_websockets({
+        "type": "variable_change",
+        "deviceId": device_id,
+        "variable": variable_name,
+        "value": value
+    })
+    
+    return {
+        "success": result.success,
+        "message": result.message,
+        "variable": variable_name,
+        "value": value
+    }
+
+
+# ============== Device Health API ==============
+
+@app.get("/api/devices/{device_id}/health")
+async def get_device_health(device_id: str):
+    """Get health status of a device"""
+    device = storage.get_device(device_id)
+    if not device:
+        raise HTTPException(404, "Device not found")
+    
+    links = storage.get_device_links(device_id=device_id)
+    bindings = storage.get_code_bindings(device_id=device_id)
+    
+    # Calculate health metrics
+    is_online = device.status == "online"
+    has_project = device.projectId is not None
+    has_bindings = len(bindings) > 0
+    
+    return {
+        "deviceId": device_id,
+        "status": device.status,
+        "lastSeen": device.lastSeen,
+        "health": {
+            "connection": "ok" if is_online else "offline",
+            "projectLink": "ok" if has_project else "unlinked",
+            "codeBindings": "ok" if has_bindings else "none",
+            "overall": "healthy" if (is_online and has_project) else "degraded"
+        },
+        "links": len(links),
+        "bindings": len(bindings),
+        "capabilities": device.capabilities
+    }
+
+
+# ============== Bulk Operations API ==============
+
+@app.post("/api/links/bulk")
+async def bulk_link_operations(data: dict):
+    """Perform bulk link operations"""
+    operations = data.get("operations", [])
+    results = []
+    
+    for op in operations:
+        action = op.get("action")
+        device_id = op.get("deviceId")
+        project_id = op.get("projectId")
+        
+        if action == "link":
+            link_data = InsertDeviceLink(
+                deviceId=device_id,
+                projectId=project_id,
+                role=op.get("role", "primary")
+            )
+            link = storage.create_device_link(link_data)
+            results.append({"action": "link", "success": True, "linkId": link.id})
+        elif action == "unlink":
+            links = storage.get_device_links(device_id=device_id, project_id=project_id)
+            for link in links:
+                storage.delete_device_link(link.id)
+            results.append({"action": "unlink", "success": True, "deviceId": device_id})
+    
+    return {"results": results}
 
 
 # ============== Dashboards API ==============

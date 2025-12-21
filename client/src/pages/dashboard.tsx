@@ -14,7 +14,9 @@ import {
   LayoutGrid,
   Settings,
   GripVertical,
-  X,
+  Cpu,
+  Link2,
+  Unlink,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,7 +38,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,16 +48,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAppStore } from "@/lib/store";
 import { renderWidget, widgetDefinitions } from "@/components/widgets";
+import { useDeviceIntegration } from "@/hooks/use-device-integration";
 import { ConnectionIndicator } from "@/components/connection-status";
 import { DashboardAIAssistant } from "@/components/dashboard-ai-assistant";
 import { DashboardTemplates } from "@/components/dashboard-templates";
 import { DashboardExport } from "@/components/dashboard-export";
 import { WidgetCodeLink } from "@/components/widget-code-link";
+import { useDeviceContext } from "@/hooks/use-device-context";
+import { deviceLinking } from "@/services/device-linking";
 import type { Dashboard, WidgetConfig, WidgetLayout, WidgetType, Project, Device } from "@shared/schema";
 import { v4 as uuidv4 } from "uuid";
 
@@ -66,6 +75,7 @@ function WidgetPalette({
   onAddWidget: (type: WidgetType) => void;
 }) {
   const categories = {
+    device: Object.entries(widgetDefinitions).filter(([_, d]) => d.category === "device"),
     control: Object.entries(widgetDefinitions).filter(([_, d]) => d.category === "control"),
     display: Object.entries(widgetDefinitions).filter(([_, d]) => d.category === "display"),
     visualization: Object.entries(widgetDefinitions).filter(([_, d]) => d.category === "visualization"),
@@ -74,6 +84,7 @@ function WidgetPalette({
   };
 
   const categoryColors = {
+    device: "cyan",
     control: "blue",
     display: "green", 
     visualization: "purple",
@@ -489,6 +500,19 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const { sendCommand } = useWebSocket();
   const { setCurrentProject } = useAppStore();
+  
+  // Device linking integration
+  const { 
+    linkedDevice, 
+    unlinkedDevices, 
+    isConnected: deviceConnected,
+    sensorData,
+    linkToProject,
+    unlinkFromProject 
+  } = useDeviceContext();
+
+  // Enhanced device integration for widgets
+  const deviceIntegration = useDeviceIntegration();
 
   // Fetch all projects to auto-select one if needed
   const { data: projects } = useQuery<Project[]>({
@@ -517,6 +541,20 @@ export default function DashboardPage() {
   });
 
   const currentDashboard = dashboards?.find((d) => d.id === currentDashboardId);
+  
+  // Listen for device link events
+  useEffect(() => {
+    const unsubscribe = deviceLinking.on('device_state_change', (event) => {
+      // Update widget data when device state changes
+      if (event.deviceId === linkedDevice?.id) {
+        toast({
+          title: "Device Update",
+          description: `Received data from ${linkedDevice?.name}`,
+        });
+      }
+    });
+    return unsubscribe;
+  }, [linkedDevice?.id, linkedDevice?.name, toast]);
 
   // Initialize local state when dashboard loads
   useMemo(() => {
@@ -629,15 +667,46 @@ export default function DashboardPage() {
   }, [selectedWidgetId]);
 
   const handleWidgetChange = useCallback((widget: WidgetConfig, value: number | string | boolean) => {
-    if (mode !== "live" || !wsConnected) return;
+    if (mode !== "live") return;
+
+    // Use device integration for sending data
+    const deviceId = widget.deviceId || linkedDevice?.id || "dev-1";
 
     // Handle different widget types
     switch (widget.type) {
       case "button":
         if (widget.functionName) {
-          sendCommand("call_function", {
-            function: widget.functionName,
-            deviceId: widget.deviceId || "dev-1"
+          // Try device integration first, fall back to WebSocket
+          if (deviceIntegration.isConnected) {
+            deviceIntegration.callFunction(widget.functionName);
+          } else if (wsConnected) {
+            sendCommand("call_function", {
+              function: widget.functionName,
+              deviceId
+            });
+          }
+        }
+        break;
+      
+      case "functionTrigger":
+        // Handle function trigger widget
+        if (typeof value === 'object' && value !== null && 'function' in value) {
+          const funcName = (value as any).function;
+          if (deviceIntegration.isConnected) {
+            deviceIntegration.callFunction(funcName);
+          } else if (wsConnected) {
+            sendCommand("call_function", { function: funcName, deviceId });
+          }
+        }
+        break;
+      
+      case "gpioControl":
+        // Handle GPIO control widget
+        if (typeof value === 'object' && value !== null) {
+          Object.entries(value as Record<number, boolean>).forEach(([pin, state]) => {
+            if (deviceIntegration.isConnected) {
+              deviceIntegration.writeGPIO(Number(pin), state ? 1 : 0);
+            }
           });
         }
         break;
@@ -647,31 +716,41 @@ export default function DashboardPage() {
       case "colorPicker":
       case "dropdown":
         if (widget.variableName) {
-          sendCommand("update_variable", {
-            variable: widget.variableName,
-            value: value,
-            deviceId: widget.deviceId || "dev-1"
-          });
+          // Try device integration first, fall back to WebSocket
+          if (deviceIntegration.isConnected) {
+            deviceIntegration.sendToDevice(widget.variableName, value);
+          } else if (wsConnected) {
+            sendCommand("update_variable", {
+              variable: widget.variableName,
+              value: value,
+              deviceId
+            });
+          }
         }
         break;
       
       case "joystick":
         if (widget.xVariable && widget.yVariable && typeof value === "object" && value !== null) {
           const coords = value as { x: number; y: number };
-          sendCommand("update_variable", {
-            variable: widget.xVariable,
-            value: coords.x,
-            deviceId: widget.deviceId || "dev-1"
-          });
-          sendCommand("update_variable", {
-            variable: widget.yVariable,
-            value: coords.y,
-            deviceId: widget.deviceId || "dev-1"
-          });
+          if (deviceIntegration.isConnected) {
+            deviceIntegration.sendToDevice(widget.xVariable, coords.x);
+            deviceIntegration.sendToDevice(widget.yVariable, coords.y);
+          } else if (wsConnected) {
+            sendCommand("update_variable", {
+              variable: widget.xVariable,
+              value: coords.x,
+              deviceId
+            });
+            sendCommand("update_variable", {
+              variable: widget.yVariable,
+              value: coords.y,
+              deviceId
+            });
+          }
         }
         break;
     }
-  }, [mode, wsConnected, sendCommand]);
+  }, [mode, wsConnected, sendCommand, linkedDevice?.id, deviceIntegration]);
 
   const handleAutoLayout = useCallback(() => {
     if (localWidgets.length === 0) return;
@@ -684,10 +763,10 @@ export default function DashboardPage() {
 
     // Sort widgets by category and importance
     const sortedWidgets = [...localWidgets].sort((a, b) => {
-      const categoryOrder = { control: 0, display: 1, visualization: 2, media: 3, layout: 4 };
+      const categoryOrder: Record<string, number> = { device: 0, control: 1, display: 2, visualization: 3, media: 4, layout: 5 };
       const aCat = widgetDefinitions[a.type]?.category || "layout";
       const bCat = widgetDefinitions[b.type]?.category || "layout";
-      return categoryOrder[aCat] - categoryOrder[bCat];
+      return (categoryOrder[aCat] || 5) - (categoryOrder[bCat] || 5);
     });
 
     sortedWidgets.forEach((widget) => {
@@ -789,6 +868,88 @@ export default function DashboardPage() {
           <Badge variant="outline" className="text-xs">
             {project?.name}
           </Badge>
+          
+          {/* Device Link Status */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 px-2 gap-1">
+                <Cpu className={`h-3 w-3 ${linkedDevice ? (deviceConnected ? 'text-green-500' : 'text-yellow-500') : 'text-muted-foreground'}`} />
+                {linkedDevice ? linkedDevice.name : 'No Device'}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-72" align="start">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-medium text-sm">Device Link</h4>
+                  {linkedDevice && (
+                    <Badge variant={deviceConnected ? "default" : "secondary"} className="text-xs">
+                      {deviceConnected ? "Connected" : "Offline"}
+                    </Badge>
+                  )}
+                </div>
+                
+                {linkedDevice ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
+                      <Cpu className="h-4 w-4" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{linkedDevice.name}</p>
+                        <p className="text-xs text-muted-foreground">{linkedDevice.hardware || 'ESP32'}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2"
+                        onClick={() => unlinkFromProject(linkedDevice.id)}
+                      >
+                        <Unlink className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    
+                    {/* Sensor Data Preview */}
+                    {Object.keys(sensorData).length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-muted-foreground">Live Data</p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {Object.entries(sensorData).slice(0, 4).map(([key, value]) => (
+                            <div key={key} className="text-xs bg-muted/50 rounded px-2 py-1">
+                              <span className="text-muted-foreground">{key}:</span> {String(value)}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Link a device to enable live dashboard control
+                    </p>
+                    {unlinkedDevices.length > 0 ? (
+                      <div className="space-y-1">
+                        {unlinkedDevices.slice(0, 3).map((device) => (
+                          <Button
+                            key={device.id}
+                            variant="outline"
+                            size="sm"
+                            className="w-full justify-start gap-2"
+                            onClick={() => currentProjectId && linkToProject(device.id, currentProjectId)}
+                          >
+                            <Link2 className="h-3 w-3" />
+                            {device.name}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        No available devices. Add a device first.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
         <div className="flex items-center gap-2">
           <ConnectionIndicator status={wsConnected ? "online" : "offline"} />
@@ -976,7 +1137,13 @@ export default function DashboardPage() {
                     widget,
                     mode === "preview" 
                       ? Math.random() * 100 // Mock data for preview
-                      : deviceData[widget.deviceId || "dev-1"]?.[widget.variableName || ""],
+                      : widget.type === 'deviceStatus' 
+                        ? { name: linkedDevice?.name || 'No Device', status: deviceConnected ? 'online' : 'offline', hardware: linkedDevice?.hardware || 'Unknown' }
+                        : widget.type === 'sensorMonitor'
+                          ? sensorData
+                          : widget.type === 'variableWatch'
+                            ? Object.entries(sensorData).map(([name, value]) => ({ name, value, type: typeof value }))
+                            : deviceData[widget.deviceId || linkedDevice?.id || "dev-1"]?.[widget.variableName || ""] ?? sensorData[widget.variableName || ""],
                     mode === "live" ? (value) => handleWidgetChange(widget, value) : undefined,
                     mode === "edit"
                   )}

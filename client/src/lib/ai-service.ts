@@ -13,6 +13,19 @@ export interface AIContextData {
   errorMessage?: string;
   selectedText?: string;
   projectContext?: string;
+  deviceContext?: {
+    deviceName: string;
+    deviceType: string;
+    isConnected: boolean;
+    sensorValues: Record<string, number | string | boolean>;
+    capabilities: {
+      gpio: boolean;
+      adc: boolean;
+      wifi: boolean;
+      i2c: boolean;
+      spi: boolean;
+    } | null;
+  };
 }
 
 export interface CodeCompletion {

@@ -45,8 +45,10 @@ import { SerialConnection } from "@/components/serial-connection";
 import { WiFiConnection } from "@/components/wifi-connection";
 import { DeployDialog } from "@/components/deploy-dialog";
 import { AIAssistant } from "@/components/ai-assistant";
+import { DeviceStatusPanel } from "@/components/device-status-panel";
 import { getHardwareLabel, getLanguageLabel } from "@/components/hardware-icon";
 import { analyzeCode } from "@/services/code-analyzer";
+import { useDeviceIntegration } from "@/hooks/use-device-integration";
 import type { Project, CodeFile } from "@shared/schema";
 
 
@@ -193,6 +195,9 @@ export default function EditorPage() {
   const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'success' | 'error'>('idle');
   const { toast } = useToast();
 
+  // Device integration for code-device linking
+  const { linkedDevice, parseCodeAnnotations, isConnected: deviceConnected } = useDeviceIntegration();
+
   const { data: project, isLoading: projectLoading } = useQuery<Project>({
     queryKey: ["/api/projects", currentProjectId],
     enabled: !!currentProjectId,
@@ -202,6 +207,13 @@ export default function EditorPage() {
     queryKey: ["/api/projects", currentProjectId, "files"],
     enabled: !!currentProjectId,
   });
+
+  // Parse code annotations when file changes (for device linking)
+  useEffect(() => {
+    if (linkedDevice && currentProjectId) {
+      parseCodeAnnotations();
+    }
+  }, [linkedDevice?.id, currentProjectId, parseCodeAnnotations]);
 
   // Fetch dashboard widgets for code binding
   const { data: dashboards } = useQuery<Array<{ id: string; widgets: Array<{ id: string; type: string; label: string }> }>>({
@@ -517,6 +529,7 @@ export default function EditorPage() {
             )}
             {testStatus === 'running' ? 'Testing...' : testStatus === 'success' ? 'Passed' : testStatus === 'error' ? 'Failed' : 'Test'}
           </Button>
+          <DeviceStatusPanel />
           <SerialConnection />
           <WiFiConnection />
           <Button

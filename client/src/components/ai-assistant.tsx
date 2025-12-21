@@ -10,12 +10,17 @@ import {
   RotateCcw,
   Copy,
   Check,
+  Cpu,
+  Activity,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAIChat, useCodeAnalysis } from "@/hooks/use-ai";
+import { useDeviceAIContext } from "@/hooks/use-device-context";
+import { useDeviceAIIntegration } from "@/hooks/use-device-integration";
 import { AIContextData } from "@/lib/ai-service";
 
 // Parse and render AI message with proper formatting
@@ -141,9 +146,11 @@ export function AIAssistant({
   errorMessage,
 }: AIAssistantProps) {
   const [inputValue, setInputValue] = useState("");
-  const [selectedTab, setSelectedTab] = useState<"chat" | "analysis">("chat");
+  const [selectedTab, setSelectedTab] = useState<"chat" | "analysis" | "device">("chat");
   const { messages, isLoading, error, sendMessage, clearHistory } = useAIChat();
   const { analysis, isLoading: analysisLoading, analyze } = useCodeAnalysis();
+  const deviceContext = useDeviceAIContext();
+  const deviceIntegration = useDeviceAIIntegration();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -168,11 +175,19 @@ export function AIAssistant({
     e.preventDefault();
     if (!inputValue.trim() || isLoading) return;
 
+    // Include device context in AI requests
     const context: AIContextData = {
       code,
       language,
       fileName,
       errorMessage,
+      deviceContext: deviceContext.hasDevice ? {
+        deviceName: deviceContext.deviceName,
+        deviceType: deviceContext.deviceType,
+        isConnected: deviceContext.isConnected,
+        sensorValues: deviceContext.sensorValues,
+        capabilities: deviceContext.capabilities,
+      } : undefined,
     };
 
     await sendMessage(inputValue, context);
@@ -189,6 +204,12 @@ export function AIAssistant({
           {messages.length > 0 && (
             <Badge variant="secondary" className="text-xs h-5">
               {messages.length}
+            </Badge>
+          )}
+          {deviceContext.hasDevice && (
+            <Badge variant="outline" className="text-xs h-5 gap-1">
+              <Cpu className="h-3 w-3" />
+              {deviceContext.isConnected ? "Live" : "Offline"}
             </Badge>
           )}
         </div>
@@ -215,6 +236,16 @@ export function AIAssistant({
           }`}
         >
           Analysis
+        </button>
+        <button
+          onClick={() => setSelectedTab("device")}
+          className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+            selectedTab === "device"
+              ? "border-b-2 border-blue-500 text-blue-600"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Device
         </button>
       </div>
 
@@ -272,7 +303,7 @@ export function AIAssistant({
             )}
             <div ref={messagesEndRef} />
           </>
-        ) : (
+        ) : selectedTab === "analysis" ? (
           <>
             {analysisLoading ? (
               <div className="flex items-center justify-center h-full">
@@ -321,7 +352,111 @@ export function AIAssistant({
               </div>
             )}
           </>
-        )}
+        ) : selectedTab === "device" ? (
+          <div className="space-y-4">
+            {deviceIntegration.hasDevice ? (
+              <>
+                <Card className="p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      deviceIntegration.isConnected ? 'bg-green-100 dark:bg-green-900' : 'bg-gray-100 dark:bg-gray-800'
+                    }`}>
+                      <Cpu className={`h-5 w-5 ${deviceIntegration.isConnected ? 'text-green-600' : 'text-gray-500'}`} />
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-sm">{deviceIntegration.deviceName}</h4>
+                      <p className="text-xs text-muted-foreground">{deviceIntegration.deviceType}</p>
+                    </div>
+                    <Badge variant={deviceIntegration.isConnected ? "default" : "secondary"} className="ml-auto">
+                      {deviceIntegration.isConnected ? "Connected" : "Offline"}
+                    </Badge>
+                  </div>
+                  
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Link2 className="h-3 w-3" />
+                      <span>Project: {deviceIntegration.projectName}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Code2 className="h-3 w-3" />
+                      <span>Language: {deviceIntegration.projectLanguage}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Activity className="h-3 w-3" />
+                      <span>Connection: {deviceIntegration.connectionType}</span>
+                    </div>
+                  </div>
+                </Card>
+
+                {deviceIntegration.capabilities && (
+                  <Card className="p-4">
+                    <h4 className="font-medium text-sm mb-2">Capabilities</h4>
+                    <div className="flex flex-wrap gap-1">
+                      {deviceIntegration.capabilities.gpio && <Badge variant="outline" className="text-xs">GPIO</Badge>}
+                      {deviceIntegration.capabilities.adc && <Badge variant="outline" className="text-xs">ADC</Badge>}
+                      {deviceIntegration.capabilities.wifi && <Badge variant="outline" className="text-xs">WiFi</Badge>}
+                      {deviceIntegration.capabilities.i2c && <Badge variant="outline" className="text-xs">I2C</Badge>}
+                      {deviceIntegration.capabilities.spi && <Badge variant="outline" className="text-xs">SPI</Badge>}
+                      {deviceIntegration.capabilities.pwm && <Badge variant="outline" className="text-xs">PWM</Badge>}
+                    </div>
+                  </Card>
+                )}
+
+                {deviceIntegration.availableFunctions.length > 0 && (
+                  <Card className="p-4">
+                    <h4 className="font-medium text-sm mb-2">Available Functions</h4>
+                    <div className="space-y-1">
+                      {deviceIntegration.availableFunctions.map((func) => (
+                        <div key={func} className="flex items-center gap-2 text-xs font-mono bg-muted/50 rounded px-2 py-1">
+                          <Zap className="h-3 w-3 text-orange-500" />
+                          {func}()
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                {Object.keys(deviceIntegration.sensorValues).length > 0 && (
+                  <Card className="p-4">
+                    <h4 className="font-medium text-sm mb-2">Live Sensor Data</h4>
+                    <div className="space-y-2">
+                      {Object.entries(deviceIntegration.sensorValues).map(([key, value]) => (
+                        <div key={key} className="flex justify-between items-center text-sm">
+                          <span className="text-muted-foreground">{key}</span>
+                          <span className="font-mono">{String(value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                {Object.keys(deviceIntegration.variables).length > 0 && (
+                  <Card className="p-4">
+                    <h4 className="font-medium text-sm mb-2">Code Variables</h4>
+                    <div className="space-y-2">
+                      {Object.entries(deviceIntegration.variables).map(([key, value]) => (
+                        <div key={key} className="flex justify-between items-center text-sm font-mono">
+                          <span className="text-blue-600">{key}</span>
+                          <span>{value !== undefined ? String(value) : 'undefined'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                )}
+
+                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm">
+                  <strong>AI Tip:</strong> Ask me about your device! I can help with GPIO setup, sensor readings, code optimization, or troubleshooting connection issues.
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
+                <Cpu className="h-8 w-8 opacity-50" />
+                <p className="text-sm">No device linked</p>
+                <p className="text-xs text-center">Link a device to your project to see device info and enable AI-assisted device control</p>
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* Input Footer */}
