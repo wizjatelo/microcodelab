@@ -29,6 +29,7 @@ from storage import (
 )
 from ai_routes import router as ai_router
 from compiler_routes import router as compiler_router
+from database_routes import router as database_router
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -150,6 +151,7 @@ app.add_middleware(
 # Include routers
 app.include_router(ai_router)
 app.include_router(compiler_router)
+app.include_router(database_router)
 
 
 # ============== Health Check ==============

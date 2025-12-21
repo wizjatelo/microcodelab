@@ -12,6 +12,7 @@ import ProjectsPage from "@/pages/projects";
 import EditorPage from "@/pages/editor";
 import DashboardPage from "@/pages/dashboard";
 import DevicesPage from "@/pages/devices";
+import DatabasePage from "@/pages/database";
 import SettingsPage from "@/pages/settings";
 
 function Router() {
@@ -21,6 +22,7 @@ function Router() {
       <Route path="/editor" component={EditorPage} />
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/devices" component={DevicesPage} />
+      <Route path="/database" component={DatabasePage} />
       <Route path="/settings" component={SettingsPage} />
       <Route component={NotFound} />
     </Switch>

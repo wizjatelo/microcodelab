@@ -4,6 +4,7 @@ import {
   Code,
   LayoutDashboard,
   Cpu,
+  Database,
   Settings,
   Zap,
 } from "lucide-react";
@@ -42,6 +43,11 @@ const mainNavItems = [
     title: "Devices",
     url: "/devices",
     icon: Cpu,
+  },
+  {
+    title: "Database",
+    url: "/database",
+    icon: Database,
   },
 ];
 
